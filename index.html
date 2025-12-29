@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>團購點餐小幫手 - 飲料店進階版</title>
+    
+    <!-- 引入字體 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Noto Sans TC', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#FF8C42',
+                        secondary: '#FCD5CE',
+                        accent: '#4ECCB3',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- QRCode.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <style>
+        body { background-color: #FFF8F0; }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #FF8C42;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        /* 隱藏捲軸但保留功能 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="text-gray-700">
+
+    <!-- 全域載入遮罩 -->
+    <div id="globalLoader" class="fixed inset-0 bg-white z-[60] flex flex-col items-center justify-center transition-opacity duration-500">
+        <div class="loading-spinner w-12 h-12 mb-4"></div>
+        <p class="text-primary font-bold animate-pulse">系統啟動中...</p>
+    </div>
+
+    <!-- 導航列 -->
+    <nav class="bg-white shadow-sm sticky top-0 z-40">
+        <div class="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center gap-2 cursor-pointer" onclick="app.router.go('home')">
+                <div class="bg-primary text-white w-8 h-8 rounded-lg flex items-center justify-center font-bold">
+                    <i class="fa-solid fa-utensils"></i>
+                </div>
+                <h1 class="text-lg font-bold text-gray-800">點餐小幫手</h1>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="app.ui.showConfigModal()" class="text-sm px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 transition">
+                    <i class="fa-solid fa-gear"></i> 設定
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主要內容區 -->
+    <main class="max-w-2xl mx-auto p-4 pb-28 min-h-screen">
+        
+        <!-- 1. 首頁 (Home View) -->
+        <div id="view-home" class="view-section hidden space-y-6 animate-fade-in">
+            <!-- 歡迎卡片 -->
+            <div class="glass-panel rounded-3xl p-8 text-center shadow-lg border-b-4 border-primary">
+                <h2 class="text-2xl font-bold mb-2">今天要喝什麼？</h2>
+                <p class="text-gray-500 mb-6 text-sm">支援分類、多種容量、糖冰選項的團購神器！</p>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <button onclick="app.router.go('create-order')" class="group relative overflow-hidden bg-primary text-white p-6 rounded-2xl shadow-md hover:shadow-xl transition-all hover:-translate-y-1">
+                        <div class="absolute -right-4 -top-4 w-16 h-16 bg-white opacity-20 rounded-full group-hover:scale-150 transition-transform"></div>
+                        <i class="fa-solid fa-plus text-2xl mb-2 block"></i>
+                        <span class="font-bold">我要開團</span>
+                    </button>
+                    <button onclick="app.router.go('store-manage')" class="bg-white text-primary border-2 border-primary p-6 rounded-2xl shadow-sm hover:bg-orange-50 transition-all hover:-translate-y-1">
+                        <i class="fa-solid fa-store text-2xl mb-2 block"></i>
+                        <span class="font-bold">管理店家</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 歷史訂單/進行中 -->
+            <div>
+                <h3 class="font-bold text-gray-800 ml-2 mb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-clock-rotate-left text-primary"></i> 最近開的團
+                </h3>
+                <div id="home-order-list" class="space-y-3">
+                    <div class="text-center py-8 text-gray-400 bg-white rounded-xl">
+                        <p>尚無訂單記錄，快去開一團吧！</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="text-center mt-8">
+                <button onclick="app.ui.showHelpModal()" class="text-gray-400 text-sm hover:text-primary underline">
+                    如何設定 Firebase?
+                </button>
+            </div>
+        </div>
+
+        <!-- 2. 管理店家與新增菜單 (Store View) -->
+        <div id="view-store-manage" class="view-section hidden space-y-4">
+            <div class="flex items-center justify-between">
+                <h2 class="text-xl font-bold">店家列表</h2>
+                <button onclick="app.store.showAddModal()" class="bg-primary text-white px-4 py-2 rounded-full text-sm shadow-md hover:bg-orange-600">
+                    <i class="fa-solid fa-plus"></i> 新增店家
+                </button>
+            </div>
+            <div id="store-list" class="grid gap-4"></div>
+            <button onclick="app.router.go('home')" class="w-full py-3 text-gray-500">回首頁</button>
+        </div>
+
+        <!-- 3. 開團設定 (Create Order View) -->
+        <div id="view-create-order" class="view-section hidden space-y-6">
+            <div class="bg-white p-6 rounded-2xl shadow-md">
+                <h2 class="text-xl font-bold mb-4 border-b pb-2">發起團購</h2>
+                <form onsubmit="app.order.create(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-600 mb-1">選擇店家</label>
+                        <select id="create-order-store" required class="w-full p-3 bg-gray-50 rounded-xl border-none focus:ring-2 focus:ring-primary">
+                            <option value="">請選擇...</option>
+                        </select>
+                        <p class="text-xs text-right mt-1 text-primary cursor-pointer" onclick="app.router.go('store-manage')">+ 新增店家</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-600 mb-1">訂購日期/標題</label>
+                        <input type="text" id="create-order-title" required placeholder="例如：週五下午茶" 
+                               class="w-full p-3 bg-gray-50 rounded-xl border-none focus:ring-2 focus:ring-primary">
+                    </div>
+                    <button type="submit" class="w-full bg-primary text-white py-3 rounded-xl font-bold shadow-lg hover:brightness-110">
+                        建立並取得連結
+                    </button>
+                </form>
+            </div>
+            <button onclick="app.router.go('home')" class="w-full text-center text-gray-500">取消</button>
+        </div>
+
+        <!-- 4. 點餐頁面 (Participant View) -->
+        <div id="view-order-menu" class="view-section hidden">
+            <!-- 訂單資訊 Header -->
+            <div class="bg-white p-4 rounded-b-2xl shadow-sm mb-4 sticky top-14 z-30 flex justify-between items-start">
+                <div>
+                    <h2 id="menu-order-title" class="text-lg font-bold text-gray-800">載入中...</h2>
+                    <p id="menu-store-name" class="text-sm text-gray-500">...</p>
+                </div>
+                <div class="text-right">
+                    <span id="menu-status-badge" class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full font-bold">進行中</span>
+                </div>
+            </div>
+
+            <!-- 分類導航 (Anchor Links) -->
+            <div id="menu-category-nav" class="flex gap-2 overflow-x-auto px-4 pb-2 mb-2 no-scrollbar sticky top-[7.5rem] z-20 bg-[#FFF8F0]/90 backdrop-blur-sm py-2">
+                <!-- JS Render Categories -->
+            </div>
+
+            <!-- 菜單列表 (依分類) -->
+            <div id="menu-items-container" class="space-y-6 px-4 pb-24">
+                <!-- JS Render Items Grouped by Category -->
+            </div>
+
+            <!-- 底部購物車列 -->
+            <div class="fixed bottom-0 left-0 right-0 bg-white shadow-[0_-5px_15px_rgba(0,0,0,0.1)] p-4 z-50 rounded-t-2xl">
+                <div class="max-w-2xl mx-auto flex items-center justify-between">
+                    <div onclick="app.order.showCartModal()" class="cursor-pointer">
+                        <p class="text-xs text-gray-400">目前選擇</p>
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-xl text-gray-800" id="cart-total-price">$0</span>
+                            <span class="bg-primary text-white text-xs px-2 py-0.5 rounded-full" id="cart-count">0</span>
+                        </div>
+                    </div>
+                    <button onclick="app.order.showSubmitModal()" class="bg-gray-800 text-white px-6 py-3 rounded-xl font-bold hover:bg-gray-700 transition">
+                        查看並送出
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 5. 團主管理面板 (Admin Dashboard) -->
+        <div id="view-admin-dashboard" class="view-section hidden space-y-6">
+            <div class="bg-white p-4 rounded-2xl shadow-sm flex justify-between items-center">
+                <div>
+                    <h2 id="admin-title" class="font-bold text-lg">訂單統計</h2>
+                    <p class="text-xs text-gray-500">ID: <span id="admin-order-id"></span></p>
+                </div>
+                <button onclick="app.router.go('home')" class="text-sm text-gray-500 border px-3 py-1 rounded-full">返回</button>
+            </div>
+
+            <!-- 統計卡片 -->
+            <div class="grid grid-cols-2 gap-3">
+                <div class="bg-orange-50 p-4 rounded-2xl text-center">
+                    <p class="text-xs text-gray-500 mb-1">總金額</p>
+                    <p id="admin-total-amount" class="text-2xl font-bold text-primary">$0</p>
+                </div>
+                <div class="bg-blue-50 p-4 rounded-2xl text-center">
+                    <p class="text-xs text-gray-500 mb-1">總份數</p>
+                    <p id="admin-total-count" class="text-2xl font-bold text-blue-600">0</p>
+                </div>
+            </div>
+
+            <!-- 分享區塊 -->
+            <div class="bg-white p-4 rounded-2xl shadow-sm">
+                <h3 class="font-bold text-sm mb-3">分享給朋友點餐</h3>
+                <div class="flex gap-2">
+                    <input type="text" id="share-link-input" readonly class="flex-1 bg-gray-100 text-sm px-3 py-2 rounded-lg text-gray-500">
+                    <button onclick="app.utils.copyLink()" class="bg-gray-800 text-white px-4 rounded-lg text-sm">複製</button>
+                </div>
+                <div id="qrcode-container" class="mt-4 flex justify-center"></div>
+            </div>
+
+            <!-- 訂購清單 Tabs -->
+            <div class="bg-white rounded-2xl shadow-sm overflow-hidden">
+                <div class="flex border-b">
+                    <button onclick="app.admin.switchTab('items')" id="tab-items" class="flex-1 py-3 text-sm font-bold text-primary border-b-2 border-primary bg-orange-50">按品項統計</button>
+                    <button onclick="app.admin.switchTab('people')" id="tab-people" class="flex-1 py-3 text-sm font-bold text-gray-500">按人名列表</button>
+                </div>
+                <div id="admin-list-container" class="p-4 max-h-[400px] overflow-y-auto"></div>
+            </div>
+
+            <button onclick="app.admin.exportCSV()" class="w-full bg-green-600 text-white py-3 rounded-xl font-bold shadow-md">
+                <i class="fa-solid fa-file-csv mr-2"></i>匯出 Excel/試算表
+            </button>
+        </div>
+
+    </main>
+
+    <!-- Modal: 設定 (Settings) -->
+    <div id="modal-config" class="fixed inset-0 bg-black/50 hidden z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl animate-scale-up max-h-[90vh] overflow-y-auto">
+            <h3 class="text-xl font-bold mb-4">⚙️ 系統設定</h3>
+            
+            <!-- Base URL Config (New) -->
+            <div class="mb-4">
+                <label class="block text-sm font-bold mb-2">應用程式網址 (部署後請修改此處)</label>
+                <input type="text" id="config-base-url" class="w-full p-2 bg-gray-50 rounded-lg text-sm border border-gray-200 focus:ring-1 focus:ring-primary" placeholder="例如: https://my-app.vercel.app">
+                <p class="text-xs text-orange-500 mt-1">注意：預覽環境下網址是臨時的，手機無法讀取。請部署後在此填入真實網址。</p>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-bold mb-2">Firebase Config</label>
+                <textarea id="config-input" class="w-full h-32 p-3 bg-gray-50 rounded-xl text-xs font-mono border border-gray-200 focus:border-primary focus:ring-1 focus:ring-primary" 
+                    placeholder="apiKey: 'AIza...',&#10;authDomain: '...',&#10;projectId: '...'"></textarea>
+                <p class="text-xs text-gray-500 mt-1">請貼上 firebaseConfig 物件內部的 6 行內容 (無需大括號)</p>
+            </div>
+            <div class="mb-6">
+                <label class="block text-sm font-bold mb-2">AI 菜單辨識 (Gemini)</label>
+                <div class="flex gap-2 mb-2">
+                    <button onclick="app.config.setAiMode('default')" id="btn-ai-default" class="flex-1 py-2 text-xs rounded-lg border border-primary bg-primary text-white">預設 (免費)</button>
+                    <button onclick="app.config.setAiMode('custom')" id="btn-ai-custom" class="flex-1 py-2 text-xs rounded-lg border border-gray-300 text-gray-500">自訂 Key</button>
+                </div>
+                <input type="password" id="custom-ai-key" class="w-full p-2 bg-gray-50 rounded-lg text-sm hidden" placeholder="輸入您的 Gemini API Key">
+            </div>
+            <div class="mb-6 border-t pt-4">
+                <button onclick="app.config.generateShareUrl()" class="w-full bg-gray-800 text-white py-2 rounded-lg text-sm">
+                    <i class="fa-solid fa-share-nodes"></i> 產生含設定的連結
+                </button>
+                <div id="config-share-result" class="hidden mt-2">
+                    <input type="text" id="config-share-url" readonly class="w-full text-xs p-2 bg-gray-100 rounded mb-2">
+                    <div id="config-qrcode" class="flex justify-center my-2"></div>
+                </div>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="app.ui.closeModal('modal-config')" class="flex-1 py-3 text-gray-500">關閉</button>
+                <button onclick="app.config.save()" class="flex-1 bg-primary text-white py-3 rounded-xl font-bold shadow-md">儲存並重整</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: 新增店家/菜單 (Add Store) -->
+    <div id="modal-add-store" class="fixed inset-0 bg-black/50 hidden z-50 items-center justify-center p-4 backdrop-blur-sm flex">
+        <div class="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl overflow-y-auto max-h-[90vh]">
+            <h3 class="text-xl font-bold mb-2">新增店家菜單</h3>
+            
+            <form onsubmit="app.store.save(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-bold mb-1">店家名稱</label>
+                    <input type="text" name="storeName" required class="w-full p-2 bg-gray-50 rounded-lg">
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="is-drink-store" class="w-4 h-4 text-primary rounded border-gray-300 focus:ring-primary">
+                    <label for="is-drink-store" class="text-sm font-bold text-gray-700">這是飲料店 (啟用糖度/冰塊選項)</label>
+                </div>
+                
+                <!-- AI 辨識區 -->
+                <div class="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                    <label class="block text-sm font-bold text-blue-800 mb-2">📸 AI 菜單辨識 (支援分類與多規格)</label>
+                    <input type="file" id="menu-image-upload" accept="image/*" class="block w-full text-sm text-gray-500 mb-2 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200">
+                    <div id="image-preview-area" class="hidden mb-2">
+                        <img id="img-preview" class="max-h-40 rounded-lg border mx-auto">
+                    </div>
+                    <button type="button" onclick="app.ai.scanMenu()" id="btn-scan-menu" class="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-blue-700 disabled:bg-gray-400">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> 開始辨識
+                    </button>
+                    <p id="scan-status" class="text-xs text-center mt-2 text-blue-600 min-h-[1rem]"></p>
+                </div>
+
+                <!-- 手動編輯區 -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-sm font-bold">菜單內容編輯</label>
+                        <div class="space-x-2">
+                            <button type="button" onclick="app.store.addCategory()" class="text-xs bg-primary text-white px-2 py-1 rounded">+ 新增分類</button>
+                        </div>
+                    </div>
+                    <div id="menu-editor-container" class="space-y-4 max-h-60 overflow-y-auto p-1 bg-gray-50 rounded-lg border border-gray-200">
+                        <!-- 動態插入 Category -->
+                        <div class="text-center py-4 text-xs text-gray-400">請新增分類或使用 AI 辨識</div>
+                    </div>
+                    <p class="text-[10px] text-gray-500 mt-1">* 價格格式：單一價格填「50」；多規格填「M:50, L:60, 瓶:100」</p>
+                </div>
+
+                <div class="flex gap-3 pt-2">
+                    <button type="button" onclick="app.ui.closeModal('modal-add-store')" class="flex-1 py-3 text-gray-500">取消</button>
+                    <button type="submit" class="flex-1 bg-primary text-white py-3 rounded-xl font-bold shadow-md">儲存店家</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: 商品詳細規格 (Item Details) -->
+    <div id="modal-item-detail" class="fixed inset-0 bg-black/60 hidden z-[70] items-end sm:items-center justify-center p-0 sm:p-4 backdrop-blur-sm flex">
+        <div class="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-slide-up sm:animate-scale-up max-h-[90vh] overflow-y-auto">
+            <h3 id="detail-item-name" class="text-xl font-bold mb-1">商品名稱</h3>
+            <p id="detail-base-price" class="text-primary font-bold mb-4">$0</p>
+            
+            <div id="detail-options-container" class="space-y-4 mb-6">
+                <!-- JS Inject Options -->
+            </div>
+
+            <div class="flex items-center justify-between pt-4 border-t">
+                <div class="flex items-center gap-3">
+                    <button onclick="app.order.detailQty(-1)" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center"><i class="fa-solid fa-minus"></i></button>
+                    <span id="detail-qty" class="font-bold text-lg">1</span>
+                    <button onclick="app.order.detailQty(1)" class="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center"><i class="fa-solid fa-plus"></i></button>
+                </div>
+                <button onclick="app.order.addToCartFromDetail()" class="bg-gray-900 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg">
+                    加入購物車 <span id="detail-add-price">$0</span>
+                </button>
+            </div>
+            <button onclick="app.ui.closeModal('modal-item-detail')" class="absolute top-4 right-4 text-gray-400 p-2"><i class="fa-solid fa-xmark text-xl"></i></button>
+        </div>
+    </div>
+
+    <!-- Modal: 提交訂單 (Submit Order) -->
+    <div id="modal-submit-order" class="fixed inset-0 bg-black/50 hidden z-[70] items-end sm:items-center justify-center p-4 backdrop-blur-sm flex">
+        <div class="bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-md p-6 shadow-2xl animate-slide-up sm:animate-scale-up">
+            <h3 class="text-xl font-bold mb-4">確認訂單</h3>
+            
+            <div id="cart-summary" class="bg-gray-50 p-3 rounded-xl mb-4 text-sm max-h-40 overflow-y-auto space-y-2">
+                <!-- JS Render Cart -->
+            </div>
+            
+            <div class="flex justify-between items-center mb-6 text-lg font-bold">
+                <span>總金額</span>
+                <span class="text-primary" id="final-total">$0</span>
+            </div>
+
+            <form onsubmit="app.order.submit(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-bold mb-1">您的暱稱</label>
+                    <input type="text" id="participant-name" required placeholder="怎麼稱呼您？" class="w-full p-3 bg-gray-100 rounded-xl border-none focus:ring-2 focus:ring-primary">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold mb-1">備註 (選填)</label>
+                    <input type="text" id="participant-note" placeholder="例如：幫我分開裝" class="w-full p-3 bg-gray-100 rounded-xl border-none">
+                </div>
+
+                <button type="submit" class="w-full bg-gray-900 text-white py-3.5 rounded-xl font-bold shadow-lg text-lg">
+                    確認送出
+                </button>
+            </form>
+            <button onclick="app.ui.closeModal('modal-submit-order')" class="w-full text-center text-gray-400 mt-4 text-sm">再想一下</button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, getDoc, getDocs, doc, query, where, orderBy, onSnapshot, serverTimestamp, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- 設定檔 (請修改此處) ---
+        const HARDCODED_CONFIG = {
+            apiKey: "AIzaSyCfP75XPViRbVsTRlsQDY2Caty-iuIGDsQ",
+            authDomain: "grouporderapp-c7036.firebaseapp.com",
+            projectId: "grouporderapp-c7036",
+            storageBucket: "grouporderapp-c7036.firebasestorage.app",
+            messagingSenderId: "1087210025698",
+            appId: "1:1087210025698:web:f0507fc2ad84721504e4bb"
+        };
+        // ------------------------
+
+        window.db = null;
+        window.auth = null;
+        window.currentUser = null;
+        const appId = 'food-ordering-app';
+
+        window.app = {
+            state: {
+                currentView: 'home',
+                stores: [],
+                currentOrder: null,
+                cart: [], 
+                aiMode: localStorage.getItem(`${appId}_ai_mode`) || 'default',
+                baseUrl: localStorage.getItem(`${appId}_base_url`) || (window.location.origin + window.location.pathname),
+                tempItem: null,
+            },
+
+            init: async () => { await app.config.load(); },
+
+            config: {
+                load: async () => {
+                    let finalConfig = null;
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const encodedConfig = urlParams.get('config');
+                    if (encodedConfig) {
+                        try {
+                            finalConfig = JSON.parse(atob(encodedConfig));
+                            localStorage.setItem(`${appId}_firebase_config`, JSON.stringify(finalConfig));
+                            const newUrl = window.location.pathname + (urlParams.get('orderId') ? `?orderId=${urlParams.get('orderId')}` : '');
+                            window.history.replaceState({}, document.title, newUrl);
+                        } catch (e) {}
+                    }
+                    if (!finalConfig && HARDCODED_CONFIG.apiKey !== 'demo') finalConfig = HARDCODED_CONFIG;
+                    if (!finalConfig) finalConfig = JSON.parse(localStorage.getItem(`${appId}_firebase_config`));
+
+                    if (finalConfig && finalConfig.apiKey !== 'demo') {
+                        try {
+                            const firebaseApp = initializeApp(finalConfig);
+                            window.auth = getAuth(firebaseApp);
+                            window.db = getFirestore(firebaseApp);
+                            await signInAnonymously(window.auth);
+                            window.currentUser = window.auth.currentUser;
+                            document.getElementById('globalLoader').classList.add('opacity-0', 'pointer-events-none');
+                            
+                            const orderId = new URLSearchParams(window.location.search).get('orderId');
+                            if (orderId) app.router.go('order-menu', { orderId });
+                            else app.router.go('home');
+                            app.store.loadAll();
+                        } catch (err) {
+                            app.ui.showConfigModal();
+                            document.getElementById('globalLoader').classList.add('hidden');
+                        }
+                    } else {
+                        document.getElementById('globalLoader').classList.add('hidden');
+                        app.ui.showConfigModal();
+                    }
+                },
+                save: () => {
+                    const text = document.getElementById('config-input').value;
+                    const regex = /(apiKey|authDomain|projectId|storageBucket|messagingSenderId|appId)\s*[:=]\s*['"]?([^'"\s,]+)['"]?/g;
+                    let match; const config = {}; let count = 0;
+                    while ((match = regex.exec(text)) !== null) { config[match[1]] = match[2]; count++; }
+                    
+                    const newBaseUrl = document.getElementById('config-base-url').value.trim();
+                    if(newBaseUrl) {
+                        localStorage.setItem(`${appId}_base_url`, newBaseUrl);
+                        app.state.baseUrl = newBaseUrl;
+                    } else {
+                        // If empty, reset to current
+                        const current = window.location.origin + window.location.pathname;
+                        localStorage.setItem(`${appId}_base_url`, current);
+                        app.state.baseUrl = current;
+                    }
+
+                    if (count >= 6) {
+                        localStorage.setItem(`${appId}_firebase_config`, JSON.stringify(config));
+                        const aiMode = document.getElementById('btn-ai-custom').classList.contains('bg-primary') ? 'custom' : 'default';
+                        localStorage.setItem(`${appId}_ai_mode`, aiMode);
+                        if (aiMode === 'custom') localStorage.setItem(`${appId}_ai_key`, document.getElementById('custom-ai-key').value);
+                        window.location.reload();
+                    } else alert("設定格式錯誤");
+                },
+                setAiMode: (mode) => {
+                    if (mode === 'default') {
+                        document.getElementById('btn-ai-default').className = 'flex-1 py-2 text-xs rounded-lg border border-primary bg-primary text-white';
+                        document.getElementById('btn-ai-custom').className = 'flex-1 py-2 text-xs rounded-lg border border-gray-300 text-gray-500';
+                        document.getElementById('custom-ai-key').classList.add('hidden');
+                    } else {
+                        document.getElementById('btn-ai-default').className = 'flex-1 py-2 text-xs rounded-lg border border-gray-300 text-gray-500';
+                        document.getElementById('btn-ai-custom').className = 'flex-1 py-2 text-xs rounded-lg border border-primary bg-primary text-white';
+                        document.getElementById('custom-ai-key').classList.remove('hidden');
+                    }
+                },
+                generateShareUrl: () => {
+                    const stored = localStorage.getItem(`${appId}_firebase_config`);
+                    if (!stored) return alert("請先儲存設定");
+                    // Use stored Base URL
+                    const url = `${app.state.baseUrl}?config=${btoa(stored)}`;
+                    document.getElementById('config-share-result').classList.remove('hidden');
+                    document.getElementById('config-share-url').value = url;
+                    document.getElementById('config-qrcode').innerHTML = "";
+                    new QRCode(document.getElementById('config-qrcode'), { text: url, width: 128, height: 128 });
+                }
+            },
+
+            router: {
+                go: (viewName, params = {}) => {
+                    document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
+                    document.getElementById(`view-${viewName}`).classList.remove('hidden');
+                    window.scrollTo(0,0);
+                    if (viewName === 'home') app.order.loadHistory();
+                    if (viewName === 'store-manage') app.store.renderList();
+                    if (viewName === 'create-order') app.store.renderSelectOptions();
+                    if (viewName === 'order-menu' && params.orderId) app.order.initMenu(params.orderId);
+                    if (viewName === 'admin-dashboard' && params.orderId) app.admin.init(params.orderId);
+                }
+            },
+
+            ui: {
+                showConfigModal: () => {
+                    document.getElementById('modal-config').classList.remove('hidden');
+                    document.getElementById('modal-config').classList.add('flex');
+                    const stored = localStorage.getItem(`${appId}_firebase_config`);
+                    if (stored) {
+                        const c = JSON.parse(stored);
+                        let str = "";
+                        for (let k in c) str += `${k}: "${c[k]}",\n`;
+                        document.getElementById('config-input').value = str;
+                    }
+                    // Load Base URL
+                    document.getElementById('config-base-url').value = app.state.baseUrl;
+                },
+                closeModal: (id) => {
+                    document.getElementById(id).classList.add('hidden');
+                    document.getElementById(id).classList.remove('flex');
+                },
+                showHelpModal: () => alert("請前往 Firebase Console -> Project Settings -> General -> 複製設定。")
+            },
+
+            store: {
+                loadAll: async () => {
+                    if (!window.db) return;
+                    const q = query(collection(window.db, "stores"), orderBy("createdAt", "desc"));
+                    const snapshot = await getDocs(q);
+                    app.state.stores = snapshot.docs.map(d => ({id: d.id, ...d.data()}));
+                },
+                
+                showAddModal: () => {
+                    document.getElementById('modal-add-store').classList.remove('hidden');
+                    document.getElementById('modal-add-store').classList.add('flex');
+                    document.getElementById('menu-editor-container').innerHTML = '';
+                    app.store.addCategory('熱門商品'); // 預設一個分類
+                },
+
+                // 新增分類區塊
+                addCategory: (name = '') => {
+                    const id = Date.now() + Math.random().toString(16).slice(2);
+                    const div = document.createElement('div');
+                    div.className = "bg-white p-3 rounded-lg border border-gray-200 category-block relative group";
+                    div.dataset.id = id;
+                    div.innerHTML = `
+                        <div class="flex items-center gap-2 mb-2">
+                            <i class="fa-solid fa-layer-group text-primary"></i>
+                            <input type="text" placeholder="分類名稱 (如：鮮奶系列)" value="${name}" class="category-name flex-1 font-bold bg-transparent border-b border-gray-300 focus:border-primary focus:outline-none py-1 text-sm">
+                            <button type="button" onclick="this.closest('.category-block').remove()" class="text-gray-300 hover:text-red-400 p-1"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                        <div class="space-y-2 item-list pl-2 border-l-2 border-gray-100"></div>
+                        <button type="button" onclick="app.store.addItemToCategory('${id}')" class="mt-2 text-xs text-primary font-bold hover:bg-orange-50 px-2 py-1 rounded">+ 新增品項</button>
+                    `;
+                    document.getElementById('menu-editor-container').appendChild(div);
+                    if(!name) app.store.addItemToCategory(id);
+                },
+
+                // 新增品項列
+                addItemToCategory: (catId, name='', priceStr='') => {
+                    const catBlock = document.querySelector(`.category-block[data-id="${catId}"] .item-list`);
+                    if(!catBlock) return;
+                    const div = document.createElement('div');
+                    div.className = "flex gap-2 items-center menu-item-row";
+                    div.innerHTML = `
+                        <input type="text" placeholder="品名" value="${name}" class="item-name w-3/5 p-2 bg-gray-100 rounded text-sm focus:ring-1 focus:ring-primary">
+                        <input type="text" placeholder="價格 (如: 50 或 M:50, L:60)" value="${priceStr}" class="item-price w-2/5 p-2 bg-gray-100 rounded text-sm focus:ring-1 focus:ring-primary">
+                        <button type="button" onclick="this.parentElement.remove()" class="text-gray-300 hover:text-red-400"><i class="fa-solid fa-xmark"></i></button>
+                    `;
+                    catBlock.appendChild(div);
+                },
+
+                save: async (e) => {
+                    e.preventDefault();
+                    if (!window.db) return app.ui.showConfigModal();
+                    
+                    const form = e.target;
+                    const name = form.storeName.value;
+                    const isDrinkStore = document.getElementById('is-drink-store').checked;
+                    const menu = [];
+
+                    // 解析 DOM 轉 JSON 結構
+                    document.querySelectorAll('.category-block').forEach(catEl => {
+                        const catName = catEl.querySelector('.category-name').value.trim();
+                        if(!catName) return;
+                        const items = [];
+                        catEl.querySelectorAll('.menu-item-row').forEach(row => {
+                            const n = row.querySelector('.item-name').value.trim();
+                            const pStr = row.querySelector('.item-price').value.trim();
+                            if(n && pStr) items.push({ name: n, priceStr: pStr });
+                        });
+                        if(items.length > 0) menu.push({ category: catName, items });
+                    });
+
+                    let imageBase64 = null;
+                    const fileInput = document.getElementById('menu-image-upload');
+                    if (fileInput.files[0]) imageBase64 = await app.utils.resizeImage(fileInput.files[0]);
+
+                    try {
+                        await addDoc(collection(window.db, "stores"), {
+                            name,
+                            isDrinkStore,
+                            menu, // Nested Structure
+                            image: imageBase64,
+                            createdAt: serverTimestamp()
+                        });
+                        alert("店家新增成功！");
+                        app.ui.closeModal('modal-add-store');
+                        app.store.loadAll();
+                        app.router.go('store-manage');
+                    } catch (err) {
+                        alert("儲存失敗: " + err.message);
+                    }
+                },
+
+                renderList: () => {
+                    const container = document.getElementById('store-list');
+                    container.innerHTML = app.state.stores.map(s => {
+                        const itemCount = s.menu ? s.menu.reduce((acc, c) => acc + c.items.length, 0) : (s.items ? s.items.length : 0);
+                        return `
+                        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+                            <div>
+                                <h3 class="font-bold text-lg flex items-center gap-2">
+                                    ${s.name}
+                                    ${s.isDrinkStore ? '<span class="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">飲料店</span>' : ''}
+                                </h3>
+                                <p class="text-xs text-gray-400">${itemCount} 個品項</p>
+                            </div>
+                            <div class="text-right">
+                                <button onclick="alert('目前僅支援新增，如需修改請刪除後重建')" class="text-gray-400 text-sm">詳細</button>
+                            </div>
+                        </div>
+                    `}).join('');
+                },
+                renderSelectOptions: () => {
+                    const sel = document.getElementById('create-order-store');
+                    sel.innerHTML = '<option value="">請選擇...</option>' + 
+                        app.state.stores.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+                }
+            },
+
+            order: {
+                create: async (e) => {
+                    e.preventDefault();
+                    if (!window.db) return app.ui.showConfigModal();
+                    const storeId = document.getElementById('create-order-store').value;
+                    const title = document.getElementById('create-order-title').value;
+                    const storeData = app.state.stores.find(s => s.id === storeId);
+                    if (!storeId) return alert("請選擇店家");
+
+                    // 相容舊資料結構 (flat items -> category '未分類')
+                    let finalMenu = storeData.menu;
+                    if (!finalMenu && storeData.items) {
+                        finalMenu = [{ category: '精選商品', items: storeData.items.map(i => ({name: i.name, priceStr: i.price.toString()})) }];
+                    }
+
+                    try {
+                        const docRef = await addDoc(collection(window.db, "orders"), {
+                            storeId,
+                            storeName: storeData.name,
+                            isDrinkStore: storeData.isDrinkStore || false,
+                            menu: finalMenu, 
+                            title,
+                            hostId: window.currentUser.uid,
+                            createdAt: serverTimestamp(),
+                            status: 'active'
+                        });
+                        const history = JSON.parse(localStorage.getItem(`${appId}_my_orders`) || "[]");
+                        history.push({ id: docRef.id, title, date: new Date().toISOString() });
+                        localStorage.setItem(`${appId}_my_orders`, JSON.stringify(history));
+                        app.router.go('admin-dashboard', { orderId: docRef.id });
+                    } catch (err) { alert("開團失敗: " + err.message); }
+                },
+
+                loadHistory: () => {
+                    const history = JSON.parse(localStorage.getItem(`${appId}_my_orders`) || "[]");
+                    const container = document.getElementById('home-order-list');
+                    if (history.length === 0) return;
+                    container.innerHTML = history.reverse().map(o => `
+                        <div onclick="app.router.go('admin-dashboard', {orderId: '${o.id}'})" class="bg-white p-4 rounded-xl shadow-sm border-l-4 border-primary cursor-pointer hover:bg-gray-50 transition">
+                            <h4 class="font-bold text-gray-800">${o.title}</h4>
+                            <p class="text-xs text-gray-400 mt-1">${new Date(o.date).toLocaleDateString()}</p>
+                        </div>
+                    `).join('');
+                },
+
+                initMenu: async (orderId) => {
+                    if (!window.db) return app.ui.showConfigModal();
+                    const docSnap = await getDoc(doc(window.db, "orders", orderId));
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        app.state.currentOrder = { id: orderId, ...data };
+                        document.getElementById('menu-order-title').innerText = data.title;
+                        document.getElementById('menu-store-name').innerText = data.storeName;
+
+                        // Render Categories Nav
+                        const nav = document.getElementById('menu-category-nav');
+                        nav.innerHTML = data.menu.map((cat, idx) => `
+                            <a href="#cat-${idx}" class="whitespace-nowrap px-4 py-1.5 rounded-full bg-white border border-gray-200 text-sm text-gray-600 shadow-sm hover:text-primary hover:border-primary transition">${cat.category}</a>
+                        `).join('');
+
+                        // Render Items
+                        const container = document.getElementById('menu-items-container');
+                        container.innerHTML = data.menu.map((cat, idx) => `
+                            <div id="cat-${idx}" class="scroll-mt-32">
+                                <h3 class="font-bold text-gray-800 mb-3 ml-1 text-lg border-l-4 border-primary pl-2">${cat.category}</h3>
+                                <div class="grid grid-cols-1 gap-3">
+                                    ${cat.items.map((item, iIdx) => `
+                                        <div onclick="app.order.openItemModal(${idx}, ${iIdx})" class="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center cursor-pointer active:scale-[0.98] transition">
+                                            <div>
+                                                <h4 class="font-bold text-gray-800">${item.name}</h4>
+                                                <p class="text-sm text-gray-500 mt-0.5">${app.utils.formatPriceRange(item.priceStr)}</p>
+                                            </div>
+                                            <button class="bg-gray-100 text-primary w-8 h-8 rounded-full flex items-center justify-center"><i class="fa-solid fa-plus"></i></button>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `).join('');
+                        app.state.cart = [];
+                        app.order.renderCartTotal();
+                    } else { alert("訂單不存在"); app.router.go('home'); }
+                },
+
+                // 打開商品詳細 Modal (選擇規格/糖冰)
+                openItemModal: (catIdx, itemIdx) => {
+                    const order = app.state.currentOrder;
+                    const item = order.menu[catIdx].items[itemIdx];
+                    
+                    // 解析價格字串 "M:50, L:60" -> [{label: 'M', price: 50}, ...]
+                    const variants = app.utils.parsePriceVariants(item.priceStr);
+                    
+                    app.state.tempItem = {
+                        name: item.name,
+                        baseVariants: variants,
+                        selectedVariant: variants[0], // Default first
+                        sugar: '無糖',
+                        ice: '去冰',
+                        qty: 1
+                    };
+
+                    document.getElementById('detail-item-name').innerText = item.name;
+                    document.getElementById('detail-qty').innerText = 1;
+
+                    // Render Options
+                    const container = document.getElementById('detail-options-container');
+                    let html = '';
+
+                    // 1. 容量/價格選擇
+                    if (variants.length > 1 || (variants.length === 1 && variants[0].label !== '單一規格')) {
+                        html += `
+                            <div class="mb-4">
+                                <p class="text-sm font-bold text-gray-500 mb-2">容量</p>
+                                <div class="flex flex-wrap gap-2">
+                                    ${variants.map((v, idx) => `
+                                        <button onclick="app.order.selectVariant(${idx})" class="variant-btn px-4 py-2 rounded-lg border text-sm font-bold ${idx===0?'border-primary bg-orange-50 text-primary':'border-gray-200 text-gray-600'}" data-idx="${idx}">
+                                            ${v.label} $${v.price}
+                                        </button>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    // 2. 糖度/冰塊 (如果是飲料店)
+                    if (order.isDrinkStore) {
+                        const sugars = ['正常糖','少糖','半糖','微糖','無糖'];
+                        const ices = ['正常冰','少冰','半冰','微冰','去冰','溫','熱'];
+                        
+                        html += `
+                            <div class="mb-4">
+                                <p class="text-sm font-bold text-gray-500 mb-2">糖度</p>
+                                <div class="flex flex-wrap gap-2">
+                                    ${sugars.map(s => `<button onclick="app.order.selectOption('sugar', '${s}', this)" class="sugar-btn px-3 py-1.5 rounded-lg border text-xs ${s==='無糖'?'border-primary bg-orange-50 text-primary':'border-gray-200 text-gray-500'}">${s}</button>`).join('')}
+                                </div>
+                            </div>
+                            <div class="mb-4">
+                                <p class="text-sm font-bold text-gray-500 mb-2">冰塊</p>
+                                <div class="flex flex-wrap gap-2">
+                                    ${ices.map(i => `<button onclick="app.order.selectOption('ice', '${i}', this)" class="ice-btn px-3 py-1.5 rounded-lg border text-xs ${i==='去冰'?'border-primary bg-orange-50 text-primary':'border-gray-200 text-gray-500'}">${i}</button>`).join('')}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    container.innerHTML = html;
+                    app.order.updateDetailPrice();
+                    
+                    document.getElementById('modal-item-detail').classList.remove('hidden');
+                    document.getElementById('modal-item-detail').classList.add('flex');
+                },
+
+                selectVariant: (idx) => {
+                    app.state.tempItem.selectedVariant = app.state.tempItem.baseVariants[idx];
+                    document.querySelectorAll('.variant-btn').forEach(b => b.className = 'variant-btn px-4 py-2 rounded-lg border border-gray-200 text-gray-600 text-sm font-bold');
+                    document.querySelector(`.variant-btn[data-idx="${idx}"]`).className = 'variant-btn px-4 py-2 rounded-lg border border-primary bg-orange-50 text-primary text-sm font-bold';
+                    app.order.updateDetailPrice();
+                },
+
+                selectOption: (type, val, btn) => {
+                    app.state.tempItem[type] = val;
+                    const cls = `.${type}-btn`;
+                    document.querySelectorAll(cls).forEach(b => b.className = `${type}-btn px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 text-xs`);
+                    btn.className = `${type}-btn px-3 py-1.5 rounded-lg border border-primary bg-orange-50 text-primary text-xs`;
+                },
+
+                detailQty: (delta) => {
+                    let newQty = app.state.tempItem.qty + delta;
+                    if(newQty < 1) newQty = 1;
+                    app.state.tempItem.qty = newQty;
+                    document.getElementById('detail-qty').innerText = newQty;
+                    app.order.updateDetailPrice();
+                },
+
+                updateDetailPrice: () => {
+                    const price = app.state.tempItem.selectedVariant.price;
+                    const total = price * app.state.tempItem.qty;
+                    document.getElementById('detail-base-price').innerText = `$${price}`;
+                    document.getElementById('detail-add-price').innerText = `$${total}`;
+                },
+
+                addToCartFromDetail: () => {
+                    const t = app.state.tempItem;
+                    // 組合規格字串
+                    let variantsText = "";
+                    if (t.baseVariants.length > 1 || t.baseVariants[0].label !== '單一規格') variantsText += t.selectedVariant.label;
+                    if (app.state.currentOrder.isDrinkStore) variantsText += ` (${t.sugar}/${t.ice})`;
+
+                    app.state.cart.push({
+                        id: Date.now(),
+                        name: t.name,
+                        price: t.selectedVariant.price,
+                        qty: t.qty,
+                        variantsText: variantsText,
+                        fullPrice: t.selectedVariant.price * t.qty
+                    });
+                    
+                    app.ui.closeModal('modal-item-detail');
+                    app.order.renderCartTotal();
+                },
+
+                renderCartTotal: () => {
+                    const total = app.state.cart.reduce((sum, i) => sum + i.fullPrice, 0);
+                    const count = app.state.cart.reduce((sum, i) => sum + i.qty, 0);
+                    document.getElementById('cart-total-price').innerText = `$${total}`;
+                    document.getElementById('cart-count').innerText = count;
+                },
+
+                showSubmitModal: () => {
+                    app.order.showCartModal();
+                    document.getElementById('modal-submit-order').classList.remove('hidden');
+                    document.getElementById('modal-submit-order').classList.add('flex');
+                },
+
+                showCartModal: () => {
+                     const summary = document.getElementById('cart-summary');
+                     if(app.state.cart.length === 0) {
+                         summary.innerHTML = '<p class="text-center text-gray-400">購物車是空的</p>';
+                         document.getElementById('final-total').innerText = '$0';
+                         return;
+                     }
+                     summary.innerHTML = app.state.cart.map((i, idx) => `
+                        <div class="flex justify-between items-start border-b border-gray-100 pb-2">
+                            <div>
+                                <div class="font-bold text-gray-800">${i.name} x${i.qty}</div>
+                                <div class="text-xs text-gray-400">${i.variantsText}</div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <span class="font-bold">$${i.fullPrice}</span>
+                                <button onclick="app.order.removeFromCart(${idx})" class="text-red-400 text-xs"><i class="fa-solid fa-trash"></i></button>
+                            </div>
+                        </div>
+                    `).join('');
+                    const total = app.state.cart.reduce((sum, i) => sum + i.fullPrice, 0);
+                    document.getElementById('final-total').innerText = `$${total}`;
+                },
+
+                removeFromCart: (idx) => {
+                    app.state.cart.splice(idx, 1);
+                    app.order.showCartModal(); // Re-render list
+                    app.order.renderCartTotal(); // Re-render bottom bar
+                },
+
+                submit: async (e) => {
+                    e.preventDefault();
+                    if(app.state.cart.length === 0) return alert('購物車是空的');
+                    const name = document.getElementById('participant-name').value;
+                    const note = document.getElementById('participant-note').value;
+                    
+                    try {
+                        await addDoc(collection(window.db, "orders", app.state.currentOrder.id, "participants"), {
+                            name, note,
+                            items: app.state.cart,
+                            total: app.state.cart.reduce((sum, i) => sum + i.fullPrice, 0),
+                            createdAt: serverTimestamp()
+                        });
+                        alert("訂購成功！");
+                        app.ui.closeModal('modal-submit-order');
+                        app.state.cart = [];
+                        app.order.renderCartTotal();
+                        document.getElementById('participant-name').value = '';
+                    } catch (err) { alert("送出失敗: " + err.message); }
+                }
+            },
+
+            admin: {
+                currentParticipants: [],
+                init: async (orderId) => {
+                    if (!window.db) return app.ui.showConfigModal();
+                    const docSnap = await getDoc(doc(window.db, "orders", orderId));
+                    if (!docSnap.exists()) return alert("Error");
+                    const orderData = docSnap.data();
+                    document.getElementById('admin-title').innerText = orderData.title;
+                    document.getElementById('admin-order-id').innerText = orderId.substring(0,6);
+                    
+                    // Use Base URL for Admin Share Link
+                    const shareUrl = `${app.state.baseUrl}?orderId=${orderId}`;
+                    document.getElementById('share-link-input').value = shareUrl;
+                    document.getElementById('qrcode-container').innerHTML = "";
+                    new QRCode(document.getElementById('qrcode-container'), { text: shareUrl, width: 100, height: 100 });
+                    onSnapshot(query(collection(window.db, "orders", orderId, "participants"), orderBy("createdAt", "desc")), (snapshot) => {
+                        app.admin.currentParticipants = snapshot.docs.map(d => d.data());
+                        app.admin.renderStats();
+                        app.admin.switchTab('items');
+                    });
+                },
+                renderStats: () => {
+                    const parts = app.admin.currentParticipants;
+                    document.getElementById('admin-total-amount').innerText = `$${parts.reduce((sum, p) => sum + p.total, 0)}`;
+                    document.getElementById('admin-total-count').innerText = `${parts.length} 人`;
+                },
+                switchTab: (tab) => {
+                    const btnItems = document.getElementById('tab-items');
+                    const btnPeople = document.getElementById('tab-people');
+                    const container = document.getElementById('admin-list-container');
+                    if (tab === 'items') {
+                        btnItems.className = "flex-1 py-3 text-sm font-bold text-primary border-b-2 border-primary bg-orange-50";
+                        btnPeople.className = "flex-1 py-3 text-sm font-bold text-gray-500";
+                        
+                        // 統計邏輯：根據「品名 + 規格」來歸類
+                        const agg = {};
+                        app.admin.currentParticipants.forEach(p => {
+                            p.items.forEach(i => {
+                                const key = i.name + (i.variantsText ? ` [${i.variantsText}]` : '');
+                                if (!agg[key]) agg[key] = { qty: 0, total: 0 };
+                                agg[key].qty += i.qty;
+                                agg[key].total += i.fullPrice;
+                            });
+                        });
+                        let html = '<table class="w-full text-sm text-left"><tr class="text-gray-500 border-b"><th class="pb-2">品項 (規格)</th><th class="pb-2 text-right">數量</th><th class="pb-2 text-right">小計</th></tr>';
+                        for (let key in agg) {
+                            html += `<tr class="border-b border-gray-50"><td class="py-2 text-xs">${key}</td><td class="text-right">${agg[key].qty}</td><td class="text-right">$${agg[key].total}</td></tr>`;
+                        }
+                        html += '</table>';
+                        container.innerHTML = html;
+                    } else {
+                        btnItems.className = "flex-1 py-3 text-sm font-bold text-gray-500";
+                        btnPeople.className = "flex-1 py-3 text-sm font-bold text-primary border-b-2 border-primary bg-orange-50";
+                        let html = '<div class="space-y-3">';
+                        app.admin.currentParticipants.forEach(p => {
+                            const itemsStr = p.items.map(i => `${i.name} ${i.variantsText} x${i.qty}`).join('<br>');
+                            html += `<div class="flex justify-between items-start bg-gray-50 p-2 rounded-lg"><div><p class="font-bold">${p.name} <span class="text-xs text-gray-400 font-normal">${p.note || ''}</span></p><p class="text-xs text-gray-500 mt-1">${itemsStr}</p></div><span class="font-bold text-primary">$${p.total}</span></div>`;
+                        });
+                        html += '</div>';
+                        container.innerHTML = html;
+                    }
+                },
+                exportCSV: () => {
+                    const parts = app.admin.currentParticipants;
+                    if (parts.length === 0) return alert("無資料可匯出");
+                    let csv = "\uFEFF訂購人,品項內容,備註,總金額,下單時間\n";
+                    parts.forEach(p => {
+                        const itemsStr = p.items.map(i => `${i.name} ${i.variantsText} x${i.qty}`).join('; ');
+                        const time = p.createdAt ? new Date(p.createdAt.seconds * 1000).toLocaleString() : '';
+                        csv += `"${p.name}","${itemsStr}","${p.note || ''}",${p.total},"${time}"\n`;
+                    });
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(blob);
+                    link.download = `團購訂單_${new Date().toISOString().slice(0,10)}.csv`;
+                    link.click();
+                }
+            },
+
+            ai: {
+                scanMenu: async () => {
+                    const fileInput = document.getElementById('menu-image-upload');
+                    const statusEl = document.getElementById('scan-status');
+                    if (!fileInput.files[0]) return alert("請先選擇圖片");
+                    
+                    // Mode Check
+                    const mode = localStorage.getItem(`${appId}_ai_mode`) || 'default';
+                    let apiKey = "";
+                    if (mode === 'custom') {
+                        apiKey = localStorage.getItem(`${appId}_ai_key`);
+                        if (!apiKey) return alert("自訂模式請先輸入 Key");
+                    }
+
+                    statusEl.innerText = "AI 分析圖片中...";
+                    document.getElementById('btn-scan-menu').disabled = true;
+                    try {
+                        const base64Image = (await app.utils.fileToBase64(fileInput.files[0])).split(',')[1];
+                        const prompt = `
+                            Analyze this menu image. Return a JSON structure.
+                            Format: [{ "category": "Category Name", "items": [{ "name": "Item Name", "priceStr": "Price String" }] }]
+                            Rule for "priceStr":
+                            1. If single price, e.g., 50.
+                            2. If multiple sizes, use format "Size:Price", comma separated. e.g., "M:50, L:60" or "中:50, 大:60".
+                            Language: Traditional Chinese. Pure JSON, no markdown.
+                        `;
+                        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+                        const response = await fetch(url, {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: "image/jpeg", data: base64Image } }] }] })
+                        });
+                        const data = await response.json();
+                        if (data.error) throw new Error(data.error.message);
+                        const items = JSON.parse(data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim());
+
+                        // Render Result
+                        const container = document.getElementById('menu-editor-container');
+                        container.innerHTML = '';
+                        if (Array.isArray(items)) {
+                            items.forEach(cat => {
+                                const catId = Date.now() + Math.random().toString(16).slice(2);
+                                app.store.addCategory(cat.category);
+                                // The last added category is the one we want, but addCategory generates a new ID.
+                                // We need to simplify finding the element.
+                                // Quick fix: selector selects the LAST category-block
+                                const lastCat = container.lastElementChild;
+                                const lastId = lastCat.dataset.id;
+                                // Need to update the input value as addCategory(name) sets it
+                                lastCat.querySelector('.category-name').value = cat.category;
+                                
+                                cat.items.forEach(i => app.store.addItemToCategory(lastId, i.name, i.priceStr));
+                            });
+                            statusEl.innerText = "辨識成功！";
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        statusEl.innerText = "辨識失敗: " + err.message;
+                        if(mode === 'default') alert("預設 Key 可能額度不足，請使用自訂 Key");
+                    } finally {
+                        document.getElementById('btn-scan-menu').disabled = false;
+                    }
+                }
+            },
+
+            utils: {
+                fileToBase64: (f) => new Promise(r => { const rd = new FileReader(); rd.onload=()=>r(rd.result); rd.readAsDataURL(f); }),
+                resizeImage: (file) => new Promise(resolve => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            const MAX = 800;
+                            let w = img.width, h = img.height;
+                            if (w > MAX) { h *= MAX / w; w = MAX; }
+                            canvas.width = w; canvas.height = h;
+                            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                            resolve(canvas.toDataURL('image/jpeg', 0.6));
+                        };
+                        img.src = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }),
+                copyLink: () => {
+                    const copyText = document.getElementById("share-link-input");
+                    copyText.select();
+                    copyText.setSelectionRange(0, 99999); /* For mobile devices */
+                    try {
+                        document.execCommand("copy");
+                        alert("連結已複製！");
+                    } catch (err) {
+                        alert("複製失敗，請手動複製");
+                    }
+                },
+                formatPriceRange: (str) => {
+                    // "50" -> "$50"
+                    // "M:50, L:60" -> "$50 ~ $60"
+                    if(!str) return '';
+                    if(!str.includes(':')) return `$${str}`;
+                    const parts = str.split(/[,，]/).map(s => parseInt(s.split(/[:：]/)[1]));
+                    const min = Math.min(...parts);
+                    const max = Math.max(...parts);
+                    if(min === max) return `$${min}`;
+                    return `$${min} ~ $${max}`;
+                },
+                parsePriceVariants: (str) => {
+                    // "50" -> [{label: '單一規格', price: 50}]
+                    // "M:50, L:60" -> [{label: 'M', price: 50}, {label: 'L', price: 60}]
+                    if(!str.includes(':')) return [{label: '單一規格', price: parseInt(str) || 0}];
+                    return str.split(/[,，]/).map(s => {
+                        const [label, price] = s.split(/[:：]/);
+                        return { label: label.trim(), price: parseInt(price) || 0 };
+                    });
+                }
+            }
+        };
+
+        window.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('menu-image-upload').addEventListener('change', async (e) => {
+                if(e.target.files[0]) {
+                   document.getElementById('img-preview').src = URL.createObjectURL(e.target.files[0]);
+                   document.getElementById('image-preview-area').classList.remove('hidden');
+                }
+            });
+            app.init();
+        });
+    </script>
+</body>
+</html>
